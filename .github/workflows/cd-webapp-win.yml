@@ -1,0 +1,33 @@
+name: "CD Azure App Services (win)"
+
+on:
+  workflow_dispatch:
+jobs:
+
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore .NET dependencies
+      run: dotnet restore
+      working-directory: ./src/OrdersService
+    - name: Build .NET Project
+      run: dotnet build --no-restore
+      working-directory: ./src/OrdersService
+    - name: Publish .NET Project
+      run: dotnet publish -c Release --runtime win-x64 -o './out'  
+      working-directory: ./src/OrdersService
+    - name: Deploy to Azure App Service (Windows)
+      uses: Azure/webapps-deploy@v2.2.5
+      with:
+        # Name of the Azure Web App
+        app-name: as-tt-cn-hosting-windows-webapp
+        # Applies to Web Apps(Windows and Linux) and Web App Containers(linux). Multi container scenario not supported. Publish profile (*.publishsettings) file contents with Web Deploy secrets
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: './src/OrdersService/out/'
+      

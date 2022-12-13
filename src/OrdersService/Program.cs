@@ -4,6 +4,7 @@ using OrdersService.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Console;
 using OrdersService.Data;
+using OrdersService.Utils;
 using OrdersService.Data.Repositories;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
@@ -16,11 +17,6 @@ var builder = WebApplication.CreateBuilder(args);
 var cfg = new OrdersServiceConfiguration();
 var cfgSection = builder.Configuration.GetSection(OrdersServiceConfiguration.SectionName);
 
-if (cfgSection == null || !cfgSection.Exists())
-{
-    throw new ApplicationException(
-        $"Could not find service config. Please provide a '{OrdersServiceConfiguration.SectionName}' config section");
-}
 cfgSection.Bind(cfg);
 builder.Services.AddSingleton(cfg);
 
@@ -31,20 +27,36 @@ builder.Logging.AddConsole(options =>
     options.FormatterName = ConsoleFormatterNames.Json;
 });
 
-//traces
-if (string.IsNullOrWhiteSpace(cfg.ZipkinEndpoint))
+if (Utils.IsRunningInAzureAppService())
 {
-    throw new ApplicationException("Zipkin Endpoint not provided");
+    builder.Logging.AddAzureWebAppDiagnostics();
 }
-builder.Services.AddOpenTelemetryTracing(options =>
+
+var appInsightsConnectionString = builder.Configuration.GetValue<string>("APPLICATIONINSIGHTS_CONNECTION_STRING") ?? "";
+if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
 {
-    options.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(ServiceName))
-        .AddAspNetCoreInstrumentation()
-        .AddZipkinExporter(options =>
+    builder.Logging.AddApplicationInsights(
+        configureTelemetryConfiguration: (config) =>
         {
-            options.Endpoint = new Uri(cfg.ZipkinEndpoint);
-        });
-});
+            config.ConnectionString = appInsightsConnectionString;
+        },
+        configureApplicationInsightsLoggerOptions: (options) => { }
+    );
+}
+
+//traces
+if (cfg != null && !string.IsNullOrWhiteSpace(cfg.ZipkinEndpoint))
+{
+    builder.Services.AddOpenTelemetryTracing(options =>
+    {
+        options.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(ServiceName))
+            .AddAspNetCoreInstrumentation()
+            .AddZipkinExporter(options =>
+            {
+                options.Endpoint = new Uri(cfg.ZipkinEndpoint);
+            });
+    });
+}
 
 // metrics
 builder.Services.AddOpenTelemetryMetrics(options =>
@@ -60,32 +72,35 @@ builder.Services.AddOpenTelemetryMetrics(options =>
 });
 
 // Configure AuthN
-builder.Services.AddAuthentication("Bearer")
-    .AddJwtBearer("Bearer", options =>
-    {
-        options.Authority = cfg.IdentityServer.Authority;
-        options.RequireHttpsMetadata = cfg.IdentityServer.RequireHttpsMetadata;
-        
-        if (!string.IsNullOrWhiteSpace(cfg.IdentityServer.MetadataAddress))
-        {
-            options.MetadataAddress = cfg.IdentityServer.MetadataAddress;
-        }
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateAudience = false,
-            ValidIssuer = cfg.IdentityServer.Authority  
-        };
-    });
-
-// Configure AuthZ
-builder.Services.AddAuthorization(options =>
+if (cfg != null && cfg.IdentityServer.IsConfigured())
 {
-    options.AddPolicy("ApiScope", policy =>
+    builder.Services.AddAuthentication("Bearer")
+        .AddJwtBearer("Bearer", options =>
+        {
+            options.Authority = cfg.IdentityServer.Authority;
+            options.RequireHttpsMetadata = cfg.IdentityServer.RequireHttpsMetadata;
+
+            if (!string.IsNullOrWhiteSpace(cfg.IdentityServer.MetadataAddress))
+            {
+                options.MetadataAddress = cfg.IdentityServer.MetadataAddress;
+            }
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateAudience = false,
+                ValidIssuer = cfg.IdentityServer.Authority
+            };
+        });
+
+    // Configure AuthZ
+    builder.Services.AddAuthorization(options =>
     {
-        policy.RequireAuthenticatedUser();
-        policy.RequireClaim(cfg.Authorization.RequiredClaimName, cfg.Authorization.RequiredClaimValue);
+        options.AddPolicy("ApiScope", policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim(cfg.Authorization.RequiredClaimName, cfg.Authorization.RequiredClaimValue);
+        });
     });
-});
+}
 
 builder.Services.AddDbContext<OrdersServiceContext>(options =>
     options.UseInMemoryDatabase(databaseName: "OrdersService"));
@@ -120,8 +135,11 @@ app.UseSwaggerUI();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers()
-    .RequireAuthorization("ApiScope");
+var endpointConventionBuilder = app.MapControllers();
+if (cfg != null && cfg.IdentityServer.IsConfigured())
+{
+    endpointConventionBuilder.RequireAuthorization("ApiScope");
+}
 
 app.MapHealthChecks("/healthz/readiness");
 app.MapHealthChecks("/healthz/liveness");

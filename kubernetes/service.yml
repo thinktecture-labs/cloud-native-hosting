@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+spec:
+  selector:
+    app: orders-service
+  type: LoadBalancer
+  ports:
+  - port: 5000
+    targetPort: 5000

@@ -5,4 +5,8 @@ public class IdentityServerConfiguration
     public string Authority {get;set;}
     public string MetadataAddress {get;set;}
     public bool RequireHttpsMetadata { get; set;} = true;
+
+    public bool IsConfigured() {
+        return !string.IsNullOrWhiteSpace(Authority);
+    }
 }

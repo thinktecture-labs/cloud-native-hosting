@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-service
+spec:
+  selector:
+    matchLabels:
+      app: orders-service
+  template:
+    metadata:
+      labels:
+        app: orders-service
+    spec:
+      containers:
+      - name: main
+        image: ttcnhosting.azurecr.io/orders-service
+        imagePullPolicy: Always
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "250m"
+          requests:
+            memory: "128Mi"
+            cpu: "250m"
+        ports:
+        - containerPort: 5000

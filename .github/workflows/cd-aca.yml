@@ -1,0 +1,43 @@
+name: "CD Azure Container Apps"
+
+on:
+  workflow_dispatch:
+jobs:
+
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Docker Login
+      uses: docker/login-action@v2.1.0
+      with:
+        registry: ttcnhosting.azurecr.io
+        username: ${{ secrets.AZURE_CLIENT_ID }}
+        password: ${{ secrets.AZURE_CLIENT_SECRET }}
+    - name: Build and push Docker images
+      run: |
+        docker build . -t ttcnhosting.azurecr.io/orders-service:latest -t ttcnhosting.azurecr.io/orders-service:${{ github.sha }}
+        docker push ttcnhosting.azurecr.io/orders-service:latest 
+        docker push ttcnhosting.azurecr.io/orders-service:${{ github.sha }}
+      working-directory: ./src/OrdersService
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: 'build'
+    steps:
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Deploy to Azure Container Apps
+      uses: azure/container-apps-deploy-action@v0
+      with:
+        imageToDeploy: ttcnhosting.azurecr.io/orders-service:${{ github.sha }}
+        containerAppName: tt-cn-hosting
+        resourceGroup: rg-tt-cn-hosting
+        containerAppEnvironment: acaenv-tt-cn-hosting
+        acrName: ttcnhosting
+        acrUsername: ${{ secrets.ACR_TOKEN_NAME }}
+        acrPassword: ${{ secrets.ACR_TOKEN_PASSWORD }}
+        targetPort: 5000
+      

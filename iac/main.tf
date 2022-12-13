@@ -23,6 +23,15 @@ module "law" {
   tags       = local.tags
 }
 
+module "ai" {
+  source                              = "./modules/monitor/application_insights"
+  root_name                           = local.root_name
+  group_name                          = module.rg.name
+  log_analytics_workspace_resource_id = module.law.resource_id
+  location                            = local.location
+  tags                                = local.tags
+}
+
 module "acr" {
   source     = "./modules/acr"
   root_name  = local.root_name
@@ -67,9 +76,8 @@ module "msi_aca" {
 module "service_plan_windows" {
   source = "./modules/app_services/plan"
 
-  root_name = local.root_name
-  os_type   = "Windows"
-
+  root_name  = local.root_name
+  os_type    = "Windows"
   group_name = module.rg.name
   location   = local.location
   tags       = local.tags
@@ -99,11 +107,12 @@ module "web_app_linux" {
 module "web_app_windows" {
   source = "./modules/app_services/webapp_windows"
 
-  root_name       = local.root_name
-  service_plan_id = module.service_plan_windows.resource_id
-  group_name      = module.rg.name
-  location        = local.location
-  tags            = local.tags
+  root_name                              = local.root_name
+  service_plan_id                        = module.service_plan_windows.resource_id
+  application_insights_connection_string = module.ai.connection_string
+  group_name                             = module.rg.name
+  location                               = local.location
+  tags                                   = local.tags
 }
 
 module "cgroup" {
